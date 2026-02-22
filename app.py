@@ -95,31 +95,38 @@ def simulate_memory_pipeline(user_input: str) -> str:
         return f"（已检索到相关记忆：{mem_hint}）\n\n我已收到：「{user_input}」，并结合历史记忆为你作答。"
     return f"我已收到：「{user_input}」。暂无相关历史记忆，这是一次全新对话。"
 
-# --- CSS ---
+# --- CSS：锁死所有层级的滚动，气泡式对话样式 ---
 st.markdown("""
 <style>
-/* 1. 整体页面不滚动 */
-html, body, [data-testid="stApp"] {
+/* ══ 1. 锁死整体页面所有层级的滚动 ══ */
+html, body,
+#root,
+[data-testid="stApp"],
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+section.main,
+.main .block-container {
     overflow: hidden !important;
     height: 100vh !important;
 }
 .main .block-container {
-    padding-top: 0.8rem !important;
+    padding-top: 0.5rem !important;
     padding-bottom: 0 !important;
-    overflow: hidden !important;
+    max-width: 100% !important;
 }
 
-/* 2. 让两个滚动容器高度撑到页面底部
-      calc: 100vh - 顶栏(48px) - 标题行(72px) - 输入框(72px) - 上下间距(16px) */
+/* ══ 2. 用 calc 让内部滚动容器撑满剩余高度 ══
+        210px ≈ 顶栏48 + 标题72 + 输入框72 + 间距18 */
 [data-testid="stVerticalBlockBorderWrapper"] > div[style*="overflow"] {
     height: calc(100vh - 210px) !important;
     max-height: calc(100vh - 210px) !important;
     overflow-y: auto !important;
 }
 
-/* 3. 用户消息显示在右侧 */
-[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
-    flex-direction: row-reverse !important;
+/* ══ 3. 消除 st.markdown 气泡外层多余间距 ══ */
+.chat-bubble-wrapper [data-testid="stMarkdown"] {
+    padding: 0 !important;
+    margin: 0 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -157,13 +164,42 @@ else:
 
 # --- 5. 主聊天区 ---
 with chat_col:
-    chat_container = st.container(height=800, border=False)
+    chat_container = st.container(height=730, border=False)
     with chat_container:
+        # 构建所有消息的气泡 HTML（一次渲染，避免 Streamlit 多余包装）
+        bubbles_html = '<div style="display:flex;flex-direction:column;gap:10px;padding:4px 2px;">'
         for msg in st.session_state.messages:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
+            content = msg["content"].replace("\n", "<br>")
+            if msg["role"] == "user":
+                bubbles_html += f"""
+                <div style="display:flex;justify-content:flex-end;align-items:flex-end;gap:8px;">
+                    <div style="max-width:72%;background:#282A2C;color:#fff;
+                                padding:10px 14px;border-radius:18px 18px 4px 18px;
+                                font-size:0.93rem;line-height:1.55;word-wrap:break-word;
+                                box-shadow:0 1px 2px rgba(0,0,0,.15);">
+                        {content}
+                    </div>
+                    <div style="width:34px;height:34px;border-radius:50%;background:#cce0ff;
+                                display:flex;align-items:center;justify-content:center;
+                                flex-shrink:0;font-size:16px;">👤</div>
+                </div>"""
+            else:
+                bubbles_html += f"""
+                <div style="display:flex;justify-content:flex-start;align-items:flex-end;gap:8px;">
+                    <div style="width:34px;height:34px;border-radius:50%;background:#e8eaed;
+                                display:flex;align-items:center;justify-content:center;
+                                flex-shrink:0;font-size:16px;">🤖</div>
+                    <div style="max-width:72%;background:#131314;color:#fff;
+                                padding:10px 14px;border-radius:18px 18px 18px 4px;
+                                font-size:0.93rem;line-height:1.55;word-wrap:break-word;
+                                box-shadow:0 1px 2px rgba(0,0,0,.10);">
+                        {content}
+                    </div>
+                </div>"""
+        bubbles_html += "</div>"
+        st.markdown(bubbles_html, unsafe_allow_html=True)
 
-    prompt = st.chat_input("输入消息（含'喜欢'/'名字'/'养了'等词触发记忆写入；含'改成'/'其实'等词触发记忆更新）...")
+    prompt = st.chat_input("Ask anything")
     if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
         reply = simulate_memory_pipeline(prompt)
