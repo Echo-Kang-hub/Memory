@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .venv/
+# 忽略 data 目录下的内容，但保留目录结构（.gitkeep 占位）
+data/*
+!data/.gitkeep

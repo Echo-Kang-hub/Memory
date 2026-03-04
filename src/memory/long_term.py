@@ -1,3 +1,4 @@
+import os
 import chromadb
 from chromadb.utils import embedding_functions
 from config import Config
@@ -39,8 +40,13 @@ def _build_embedding_fn():
 
 class LongTermMemory:
     def __init__(self):
+        # 将相对路径转为绝对路径，避免 Windows 下 Streamlit 热重载时工作目录漂移
+        # 导致 ChromaDB Rust 后端触发 ERROR_ALREADY_EXISTS (os error 183)
+        db_path = os.path.abspath(Config.VECTOR_DB_PATH)
+        os.makedirs(db_path, exist_ok=True)
+
         # 持久化向量数据库
-        self.client = chromadb.PersistentClient(path=Config.VECTOR_DB_PATH)
+        self.client = chromadb.PersistentClient(path=db_path)
 
         # 根据配置选择 embedding 方案
         self.embedding_fn = _build_embedding_fn()
@@ -49,6 +55,14 @@ class LongTermMemory:
             name="agent_memories",
             embedding_function=self.embedding_fn
         )
+
+    def get_all(self) -> list[dict]:
+        """返回集合中所有记忆，格式为 [{"fact": ...}, ...]"""
+        result = self.collection.get()
+        return [{"fact": doc} for doc in result["documents"]]
+
+    def __len__(self) -> int:
+        return self.collection.count()
 
     def add_memory(self, fact: str, metadata: dict = None):
         """将事实存入向量数据库"""

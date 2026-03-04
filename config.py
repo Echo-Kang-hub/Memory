@@ -12,12 +12,12 @@ load_dotenv(override=True)
 
 class Config:
     # ── LLM 连接（对话模型）──────────────────────────────────────────
-    # BASE_URL 可换成任何兼容 OpenAI 接口的服务地址，例如：
+    # CHAT_BASE_URL 可换成任何兼容 OpenAI 接口的服务地址，例如：
     #   OpenRouter : https://openrouter.ai/api/v1
     #   DeepSeek   : https://api.deepseek.com/v1
     #   本地 Ollama: http://localhost:11434/v1
     CHAT_API_KEY:  str = os.getenv("CHAT_API_KEY", "")
-    BASE_URL: str = os.getenv("BASE_URL", "https://api.openai.com/v1")
+    CHAT_BASE_URL: str = os.getenv("CHAT_BASE_URL", "https://api.openai.com/v1")
     CHATMODEL:    str = os.getenv("CHATMODEL", "gpt-4o-mini")
 
     # ── Embedding 模式（LongTermMemory 使用）────────────────────────────
@@ -29,7 +29,7 @@ class Config:
     EMBED_LOCAL_DEVICE: str = os.getenv("EMBED_LOCAL_DEVICE", "cpu")   # cpu / cuda / mps
 
     # ollama 模式：本地 Ollama 服务
-    EMBED_OLLAMA_MODEL: str = os.getenv("EMBED_OLLAMA_MODEL", "qwen3-embedding:0.6b")
+    EMBED_OLLAMA_MODEL: str = os.getenv("EMBED_OLLAMA_MODEL", "qwen3-embedding")
     EMBED_OLLAMA_URL:   str = os.getenv("EMBED_OLLAMA_URL",   "http://localhost:11434")
 
     # api 模式：兼容 OpenAI 接口的远程 API
@@ -52,8 +52,8 @@ class Config:
     def __repr__(self) -> str:
         key_preview = f"{self.CHAT_API_KEY[:6]}..." if self.CHAT_API_KEY else "（未设置）"
         return (
-            f"Config(base_url={self.BASE_URL}, model={self.CHATMODEL}, "
-            f"api_key={key_preview}, short_term_limit={self.SHORT_TERM_LIMIT})"
+            f"Config(chat_base_url={self.CHAT_BASE_URL}, chat_model={self.CHATMODEL}, "
+            f"chat_api_key={key_preview}, short_term_limit={self.SHORT_TERM_LIMIT})"
         )
 
 

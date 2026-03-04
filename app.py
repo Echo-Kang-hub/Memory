@@ -20,7 +20,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown('<h1><i class="fa fa-database"></i> Agent Memory（最小可行版本）</h1>', unsafe_allow_html=True)
+st.markdown('<h1><i class="fa fa-database"></i> Agent Memory</h1>', unsafe_allow_html=True)
 
 # == 状态初始化（使用 config 参数）==
 if "memory" not in st.session_state:
@@ -35,20 +35,21 @@ with st.sidebar:
     st.markdown('<h3><i class="fa fa-cog"></i> 配置</h3>', unsafe_allow_html=True)
 
     # 模型可在运行时覆盖，默认读取 .env 中的 MODEL
+    _model_list = ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo", "deepseek-chat", "qwen-plus", "custom"]
     model = st.selectbox(
         "模型",
-        ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo", "deepseek-chat", "custom"],
-        index=["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo", "deepseek-chat", "custom"].index(cfg.MODEL)
-        if cfg.MODEL in ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo", "deepseek-chat", "custom"]
-        else 0,
+        _model_list,
+        index=_model_list.index(cfg.CHATMODEL)
+        if cfg.CHATMODEL in _model_list
+        else _model_list.index("custom"),   # 不在列表时自动选 custom
     )
     if model == "custom":
-        model = st.text_input("自定义模型名", value=cfg.MODEL)
+        model = st.text_input("自定义模型名", value=cfg.CHATMODEL)
 
     # 显示当前 .env 中的服务配置（只读提示，不暴露完整 key）
-    key_preview = f"{cfg.API_KEY[:8]}..." if cfg.API_KEY else "<i class=\"fa fa-exclamation-triangle\"></i> 未设置"
-    st.caption(f"BASE_URL: `{cfg.BASE_URL}`")
-    st.caption(f"API_KEY: `{key_preview}`")
+    key_preview = f"{cfg.CHAT_API_KEY[:8]}..." if cfg.CHAT_API_KEY else "<i class=\"fa fa-exclamation-triangle\"></i> 未设置"
+    st.caption(f"CHAT_BASE_URL: `{cfg.CHAT_BASE_URL}`")
+    st.caption(f"CHAT_API_KEY: `{key_preview}`")
 
     st.divider()
     st.markdown('<h3><i class="fa fa-book"></i> 长期记忆</h3>', unsafe_allow_html=True)
@@ -58,9 +59,9 @@ with st.sidebar:
         memory.save_fact(new_fact)
         st.success("已写入！")
 
-    if memory.long_term:
-        for i, item in enumerate(memory.long_term):
-            st.markdown(f"`[{i}]` {item['fact']}")
+    if len(memory.long_term_memory):
+        for i, item in enumerate(memory.long_term_memory.get_all()):
+            st.markdown(f"`[{i}]` {item['fact']}")    
     else:
         st.caption("暂无长期记忆")
 
@@ -77,8 +78,8 @@ for msg in st.session_state.chat_log:
 
 user_input = st.chat_input("输入消息…")
 if user_input:
-    if not cfg.API_KEY:
-        st.error("请在 .env 文件中设置 API_KEY")
+    if not cfg.CHAT_API_KEY:
+        st.error("请在 .env 文件中设置 CHAT_API_KEY")
         st.stop()
 
     with st.chat_message("user"):
@@ -91,7 +92,7 @@ if user_input:
     )
 
     # BASE_URL 支持任意兼容 OpenAI 接口的服务
-    client = OpenAI(api_key=cfg.API_KEY, base_url=cfg.BASE_URL)
+    client = OpenAI(api_key=cfg.CHAT_API_KEY, base_url=cfg.CHAT_BASE_URL)
     with st.chat_message("assistant"):
         with st.spinner("思考中…"):
             response = client.chat.completions.create(
@@ -114,4 +115,4 @@ with st.expander("当前记忆状态（Debug）"):
         st.json(memory.short_term)
     with col2:
         st.subheader("长期记忆（事实列表）")
-        st.json(memory.long_term)
+        st.json(memory.long_term_memory.get_all())

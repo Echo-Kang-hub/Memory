@@ -38,7 +38,7 @@ class AgentMemory:
 
     def save_fact(self, fact: str) -> None:
         """向长期记忆手动写入一条事实。"""
-        self.long_term_memory.add(fact)
+        self.long_term_memory.add_memory(fact)
 
     # ================================================================
     # 检索（Retrieve）
@@ -49,7 +49,7 @@ class AgentMemory:
         从长期记忆中用语义相似度检索最相关的事实。
         返回得分最高的 top_k 条（得分 = 相似度）。
         """
-        return self.long_term_memory.search(query, top_k)
+        return self.long_term_memory.retrieve(query, top_k)
 
     # ================================================================
     # 合成（Synthesize）
