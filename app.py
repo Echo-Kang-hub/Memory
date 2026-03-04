@@ -5,12 +5,22 @@ streamlit run app.py
 
 import streamlit as st
 from openai import OpenAI
-from memory import AgentMemory
+from src.memory import AgentMemory
 from config import cfg
 
-# == 页面配置 ==
-st.set_page_config(page_title="Agent Memory", page_icon="🧠", layout="wide")
-st.title("🧠 Agent Memory（最小可行版本）")
+from PIL import Image
+
+# == 页面配置（必须是第一个 Streamlit 调用）==
+icon = Image.open("./assets/favicon.png")
+st.set_page_config(page_title="Agent Memory", page_icon=icon, layout="wide")
+
+# 注入 Font Awesome 4.7 CDN（set_page_config 之后注入）
+st.markdown(
+    '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">',
+    unsafe_allow_html=True,
+)
+
+st.markdown('<h1><i class="fa fa-database"></i> Agent Memory（最小可行版本）</h1>', unsafe_allow_html=True)
 
 # == 状态初始化（使用 config 参数）==
 if "memory" not in st.session_state:
@@ -22,7 +32,7 @@ memory: AgentMemory = st.session_state.memory
 
 # == 侧边栏 ==
 with st.sidebar:
-    st.header("⚙️ 配置")
+    st.markdown('<h3><i class="fa fa-cog"></i> 配置</h3>', unsafe_allow_html=True)
 
     # 模型可在运行时覆盖，默认读取 .env 中的 MODEL
     model = st.selectbox(
@@ -36,12 +46,12 @@ with st.sidebar:
         model = st.text_input("自定义模型名", value=cfg.MODEL)
 
     # 显示当前 .env 中的服务配置（只读提示，不暴露完整 key）
-    key_preview = f"{cfg.API_KEY[:8]}..." if cfg.API_KEY else "⚠️ 未设置"
+    key_preview = f"{cfg.API_KEY[:8]}..." if cfg.API_KEY else "<i class=\"fa fa-exclamation-triangle\"></i> 未设置"
     st.caption(f"BASE_URL: `{cfg.BASE_URL}`")
     st.caption(f"API_KEY: `{key_preview}`")
 
     st.divider()
-    st.header("📚 长期记忆")
+    st.markdown('<h3><i class="fa fa-book"></i> 长期记忆</h3>', unsafe_allow_html=True)
 
     new_fact = st.text_input("手动写入事实", placeholder="例：用户叫小明，喜欢 Python")
     if st.button("写入记忆") and new_fact:
@@ -55,7 +65,7 @@ with st.sidebar:
         st.caption("暂无长期记忆")
 
     st.divider()
-    if st.button("🗑️ 清空短期记忆（开始新对话）"):
+    if st.button("清空短期记忆（开始新对话）"):
         memory.clear_short_term()
         st.session_state.chat_log.clear()
         st.rerun()
@@ -97,7 +107,7 @@ if user_input:
     st.session_state.chat_log.append({"role": "assistant", "content": reply})
 
 # == Debug：当前记忆状态 ==
-with st.expander("🔍 当前记忆状态（Debug）"):
+with st.expander("当前记忆状态（Debug）"):
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("短期记忆（对话窗口）")
