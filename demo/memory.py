@@ -57,7 +57,7 @@ class AgentMemory:
         从长期记忆中用关键词重叠度检索最相关的事实。
         返回得分最高的 top_k 条（得分 = 重叠词数）。
         """
-        query_tokens = set(re.findall(r"\w+", query.lower()))
+        query_tokens = set(re.findall(r"\w+", query.lower())) # 全小写，只取单词字符，过滤标点符号，然后set变为集合去重
         scored = []
         for item in self.long_term:
             fact_tokens = set(re.findall(r"\w+", item["fact"].lower()))

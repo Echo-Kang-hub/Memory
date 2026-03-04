@@ -5,7 +5,7 @@ streamlit run app.py
 
 import streamlit as st
 from openai import OpenAI
-from src.memory import AgentMemory
+from demo.memory import AgentMemory
 from config import cfg
 
 from PIL import Image
