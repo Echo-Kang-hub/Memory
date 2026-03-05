@@ -4,7 +4,7 @@ from chromadb.utils import embedding_functions
 from config import Config
 
 
-def _build_embedding_fn():
+def build_embedding():
     """根据 EMBED_TYPE 构建对应的 ChromaDB EmbeddingFunction。"""
     embed_type = Config.EMBED_TYPE.lower()
 
@@ -49,7 +49,7 @@ class LongTermMemory:
         self.client = chromadb.PersistentClient(path=db_path)
 
         # 根据配置选择 embedding 方案
-        self.embedding_fn = _build_embedding_fn()
+        self.embedding_fn = build_embedding()
 
         self.collection = self.client.get_or_create_collection(
             name="agent_memories",

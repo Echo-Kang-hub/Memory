@@ -5,7 +5,7 @@ streamlit run app.py
 
 import streamlit as st
 from openai import OpenAI
-from demo.memory_with_embedding import AgentMemory
+from src.memory.manager import AgentMemory
 from config import cfg
 
 from PIL import Image
@@ -27,6 +27,8 @@ if "memory" not in st.session_state:
     st.session_state.memory = AgentMemory(short_term_limit=cfg.SHORT_TERM_LIMIT)
 if "chat_log" not in st.session_state:
     st.session_state.chat_log = []
+if "auto_extract" not in st.session_state:
+    st.session_state.auto_extract = True
 
 memory: AgentMemory = st.session_state.memory
 
@@ -35,13 +37,13 @@ with st.sidebar:
     st.markdown('<h3><i class="fa fa-cog"></i> 配置</h3>', unsafe_allow_html=True)
 
     # 模型可在运行时覆盖，默认读取 .env 中的 MODEL
-    _model_list = ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo", "deepseek-chat", "qwen-plus", "custom"]
+    model_list = ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo", "deepseek-chat", "qwen-plus", "custom"]
     model = st.selectbox(
         "模型",
-        _model_list,
-        index=_model_list.index(cfg.CHATMODEL)
-        if cfg.CHATMODEL in _model_list
-        else _model_list.index("custom"),   # 不在列表时自动选 custom
+        model_list,
+        index=model_list.index(cfg.CHATMODEL)
+        if cfg.CHATMODEL in model_list
+        else model_list.index("custom"),   # 不在列表时自动选 custom
     )
     if model == "custom":
         model = st.text_input("自定义模型名", value=cfg.CHATMODEL)
@@ -50,6 +52,14 @@ with st.sidebar:
     key_preview = f"{cfg.CHAT_API_KEY[:8]}..." if cfg.CHAT_API_KEY else "<i class=\"fa fa-exclamation-triangle\"></i> 未设置"
     st.caption(f"CHAT_BASE_URL: `{cfg.CHAT_BASE_URL}`")
     st.caption(f"CHAT_API_KEY: `{key_preview}`")
+
+    st.divider()
+    st.markdown('<h3><i class="fa fa-magic"></i> 自动提取</h3>', unsafe_allow_html=True)
+    st.session_state.auto_extract = st.toggle(
+        "每轮对话后 LLM 自动提取记忆",
+        value=st.session_state.auto_extract,
+    )
+    st.caption("开启后，每次 assistant 回复完会调用一次额外 LLM 请求分析对话，提取值得长期记住的事实。")
 
     st.divider()
     st.markdown('<h3><i class="fa fa-book"></i> 长期记忆</h3>', unsafe_allow_html=True)
@@ -63,10 +73,10 @@ with st.sidebar:
         for i, item in enumerate(memory.long_term_memory.get_all()):
             st.markdown(f"`[{i}]` {item['fact']}")    
     else:
-        st.caption("暂无长期记忆")
+        st.caption("No Long-Term Memories Yet.")
 
     st.divider()
-    if st.button("清空短期记忆（开始新对话）"):
+    if st.button("Clear Short-Term Memory"):
         memory.clear_short_term()
         st.session_state.chat_log.clear()
         st.rerun()
@@ -76,10 +86,10 @@ for msg in st.session_state.chat_log:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-user_input = st.chat_input("输入消息…")
+user_input = st.chat_input("input your message here...")
 if user_input:
     if not cfg.CHAT_API_KEY:
-        st.error("请在 .env 文件中设置 CHAT_API_KEY")
+        st.error("Please set CHAT_API_KEY in the .env file")
         st.stop()
 
     with st.chat_message("user"):
@@ -94,7 +104,7 @@ if user_input:
     # BASE_URL 支持任意兼容 OpenAI 接口的服务
     client = OpenAI(api_key=cfg.CHAT_API_KEY, base_url=cfg.CHAT_BASE_URL)
     with st.chat_message("assistant"):
-        with st.spinner("思考中…"):
+        with st.spinner("Thinking…"):
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,
@@ -107,12 +117,20 @@ if user_input:
     st.session_state.chat_log.append({"role": "user",      "content": user_input})
     st.session_state.chat_log.append({"role": "assistant", "content": reply})
 
+    # LLM 自动提取短期记忆 → 长期记忆
+    if st.session_state.auto_extract:
+        with st.spinner("提取记忆中…"):
+            extracted = memory.extract_to_long_term(client, model)
+        if extracted:
+            facts_preview = "\n".join(f"• {f}" for f in extracted)
+            st.toast(f"已提取 {len(extracted)} 条记忆：\n{facts_preview}")
+
 # == Debug：当前记忆状态 ==
-with st.expander("当前记忆状态（Debug）"):
+with st.expander("Current Memory State (Debug)"):
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("短期记忆（对话窗口）")
+        st.subheader("Short-Term Memory (Chat Window)")
         st.json(memory.short_term)
     with col2:
-        st.subheader("长期记忆（事实列表）")
+        st.subheader("Long-Term Memory (Fact List)")
         st.json(memory.long_term_memory.get_all())

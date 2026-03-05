@@ -84,6 +84,57 @@ class AgentMemory:
         return messages
 
     # ================================================================
+    # LLM 提取：短期记忆 → 长期记忆
+    # ================================================================
+
+    def extract_to_long_term(self, client, model: str) -> list[str]:
+        """
+        把当前短期对话发给 LLM，让它提取值得长期记住的事实，
+        写入向量数据库并返回提取到的事实列表（空列表表示本轮无新事实）。
+
+        触发时机：每次 assistant 回复后调用即可。
+        """
+        if not self.short_term:
+            return []
+
+        # 把短期对话格式化成纯文本，交给 LLM 分析
+        history_text = "\n".join(
+            f"{msg['role'].upper()}: {msg['content']}" for msg in self.short_term
+        )
+
+        extract_prompt = (
+            "你是一个记忆提取助手。请从下面的对话中提取值得长期记住的事实，"
+            "例如用户的姓名、偏好、重要经历、明确的需求等。\n"
+            "要求：\n"
+            "- 每条事实单独一行，以 '- ' 开头\n"
+            "- 只提取明确提到的信息，不要推测\n"
+            "- 如果对话中没有值得记忆的事实，只输出：无\n\n"
+            f"对话记录：\n{history_text}"
+        )
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": extract_prompt}],
+            temperature=0,
+        )
+        raw = response.choices[0].message.content.strip()
+
+        # 解析 LLM 输出
+        if raw == "无" or not raw:
+            return []
+
+        facts = [
+            line.lstrip("- ").strip()
+            for line in raw.splitlines()
+            if line.strip().startswith("- ")
+        ]
+
+        for fact in facts:
+            self.long_term_memory.add_memory(fact, metadata={"source": "llm_extract"})
+
+        return facts
+
+    # ================================================================
     # 工具方法
     # ================================================================
 
