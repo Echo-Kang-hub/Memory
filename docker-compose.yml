@@ -1,0 +1,43 @@
+services:
+
+  # ── Streamlit 应用 ─────────────────────────────────────────────────
+  app:
+    build: .
+    container_name: agent-memory-app
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env                        # 读取本地 .env（API Key、模型配置等）
+    environment:
+      # 覆盖 .env 中的 MONGO_URI：在 Docker 网络里 MongoDB 服务名就是主机名
+      MONGO_URI: mongodb://mongodb:27017
+    volumes:
+      # ChromaDB 向量数据库 + static_memory.json 持久化到主机
+      - ./data:/app/data
+      # HuggingFace 模型缓存：首次拉取后重启容器无需重新下载
+      - hf_cache:/root/.cache/huggingface
+    depends_on:
+      mongodb:
+        condition: service_healthy   # 等 MongoDB 健康检查通过再启动 app
+    restart: unless-stopped
+
+  # ── MongoDB ────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7
+    container_name: agent-memory-mongo
+    volumes:
+      # MongoDB 数据文件持久化（独立 volume，与项目 data/ 分开）
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    # 如需从主机直接访问 MongoDB（例如用 Compass 查看数据），取消下面的注释：
+    # ports:
+    #   - "27017:27017"
+
+volumes:
+  hf_cache:     # HuggingFace 模型缓存
+  mongo_data:   # MongoDB 数据文件
