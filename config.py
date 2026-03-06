@@ -46,6 +46,25 @@ class Config:
         "你是一个具备记忆能力的智能助手，请结合已知记忆给出个性化回复。",
     )
 
+    # ── MongoDB（静态记忆）────────────────────────────────────────────
+    MONGO_URI:               str = os.getenv("MONGO_URI",               "mongodb://localhost:27017")
+    MONGO_DB:                str = os.getenv("MONGO_DB",                "agent_memory")
+    MONGO_STATIC_COLLECTION: str = os.getenv("MONGO_STATIC_COLLECTION", "static_memories")
+
+    # ── 记忆整理（后台 Consolidator）────────────────────────────────────
+    # CONSOLIDATE_MODEL：专用整理模型，留空则复用 CHATMODEL
+    CONSOLIDATE_MODEL:       str   = os.getenv("CONSOLIDATE_MODEL",       "")
+    # 动态记忆去重阈值：distance < 此值才触发 LLM 比对（ChromaDB cosine distance，越低越相似）
+    MEMORY_DEDUP_THRESHOLD:  float = float(os.getenv("MEMORY_DEDUP_THRESHOLD", "0.4"))
+
+    # ── 知识库（Knowledge Base）参数 ────────────────────────────────
+    # KB_COLLECTION：ChromaDB 中知识库使用的 Collection 名称，
+    #                与记忆（agent_memories）完全隔离。
+    KB_COLLECTION:    str = os.getenv("KB_COLLECTION",    "knowledge_base")
+    KB_CHUNK_SIZE:    int = int(os.getenv("KB_CHUNK_SIZE",    "500"))  # 每块字符数
+    KB_CHUNK_OVERLAP: int = int(os.getenv("KB_CHUNK_OVERLAP", "50"))   # 相邻块重叠量
+    KB_TOP_K:         int = int(os.getenv("KB_TOP_K",         "3"))    # 检索返回条数
+
     # ── Agent Memory 参数 ──────────────────────────────────────────
     SHORT_TERM_LIMIT: int = int(os.getenv("SHORT_TERM_LIMIT", "10"))
 

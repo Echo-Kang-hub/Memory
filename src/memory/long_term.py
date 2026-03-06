@@ -1,41 +1,7 @@
 import os
 import chromadb
-from chromadb.utils import embedding_functions
 from config import Config
-
-
-def build_embedding():
-    """根据 EMBED_TYPE 构建对应的 ChromaDB EmbeddingFunction。"""
-    embed_type = Config.EMBED_TYPE.lower()
-
-    if embed_type == "local":
-        # 纯本地：通过 sentence-transformers 加载 HuggingFace 模型
-        # 首次运行会自动从 HuggingFace 下载权重（约 600 MB）
-        return embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=Config.EMBED_LOCAL_MODEL,
-            device=Config.EMBED_LOCAL_DEVICE,
-        )
-
-    elif embed_type == "ollama":
-        # Ollama 本地服务，需提前执行:
-        #   ollama pull qwen3-embedding:0.6b
-        return embedding_functions.OllamaEmbeddingFunction(
-            model_name=Config.EMBED_OLLAMA_MODEL,
-            url=Config.EMBED_OLLAMA_URL,
-        )
-
-    elif embed_type == "api":
-        # 兼容 OpenAI 接口的远程 API
-        return embedding_functions.OpenAIEmbeddingFunction(
-            api_key=Config.EMBED_API_KEY,
-            api_base=Config.EMBED_API_BASE,
-            model_name=Config.EMBED_MODEL,
-        )
-
-    else:
-        raise ValueError(
-            f"不支持的 EMBED_TYPE='{Config.EMBED_TYPE}'，请在 .env 中设置为 local / ollama / api"
-        )
+from src.utils.embedding import build_embedding
 
 
 class LongTermMemory:
@@ -57,16 +23,18 @@ class LongTermMemory:
         )
 
     def get_all(self) -> list[dict]:
-        """返回集合中所有记忆，格式为 [{"fact": ...}, ...]"""
+        """返回集合中所有记忆，格式为 [{"id": ..., "fact": ...}, ...]"""
         result = self.collection.get()
-        return [{"fact": doc} for doc in result["documents"]]
+        return [
+            {"id": mem_id, "fact": doc}
+            for mem_id, doc in zip(result["ids"], result["documents"])
+        ]
 
     def __len__(self) -> int:
         return self.collection.count()
 
     def add_memory(self, fact: str, metadata: dict = None):
         """将事实存入向量数据库"""
-        # 自动生成一个唯一的 ID
         import uuid
         mem_id = str(uuid.uuid4())
         
@@ -76,6 +44,10 @@ class LongTermMemory:
             ids=[mem_id]
         )
 
+    def delete_by_id(self, mem_id: str) -> None:
+        """删除指定 ID 的动态记忆"""
+        self.collection.delete(ids=[mem_id])
+
     def retrieve(self, query: str, top_k: int = 3) -> list[dict]:
         """
         使用语义检索最相关的记忆
@@ -83,17 +55,16 @@ class LongTermMemory:
         """
         results = self.collection.query(
             query_texts=[query],
-            n_results=top_k
+            n_results=min(top_k, self.collection.count() or 1)
         )
         
-        # 格式化输出
         formatted_results = []
-        # results['documents'][0] 是匹配到的文本列表
         for i in range(len(results['documents'][0])):
             formatted_results.append({
-                "fact": results['documents'][0][i],
+                "id":       results['ids'][0][i],
+                "fact":     results['documents'][0][i],
                 "metadata": results['metadatas'][0][i],
-                "distance": results['distances'][0][i] # 距离越小越相关
+                "distance": results['distances'][0][i],
             })
             
         return formatted_results

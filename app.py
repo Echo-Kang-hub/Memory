@@ -56,30 +56,76 @@ with st.sidebar:
     st.divider()
     st.markdown('<h3><i class="fa fa-magic"></i> 自动提取</h3>', unsafe_allow_html=True)
     st.session_state.auto_extract = st.toggle(
-        "每轮对话后 LLM 自动提取记忆",
+        "每轮对话后后台提取记忆",
         value=st.session_state.auto_extract,
     )
-    st.caption("开启后，每次 assistant 回复完会调用一次额外 LLM 请求分析对话，提取值得长期记住的事实。")
+    if st.session_state.auto_extract:
+        st.caption("开启：每次 assistant 回复后将对话快照提交后台整理。")
+    else:
+        st.caption("关闭：仅当短期记忆窗口满载（FIFO 弹出）时触发后台整理。")
 
     st.divider()
     st.markdown('<h3><i class="fa fa-book"></i> 长期记忆</h3>', unsafe_allow_html=True)
 
-    new_fact = st.text_input("手动写入事实", placeholder="例：用户叫小明，喜欢 Python")
+    new_fact = st.text_input("手动写入动态事实", placeholder="例：用户喜欢 Python")
     if st.button("写入记忆") and new_fact:
         memory.save_fact(new_fact)
         st.success("已写入！")
 
-    if len(memory.long_term_memory):
-        for i, item in enumerate(memory.long_term_memory.get_all()):
-            st.markdown(f"`[{i}]` {item['fact']}")    
+    st.markdown("**🔒 静态记忆**（MongoDB）")
+    static_items = memory.static_memory.get_all()
+    if static_items:
+        for item in static_items:
+            st.markdown(f"• {item['fact']}")
     else:
-        st.caption("No Long-Term Memories Yet.")
+        st.caption("无静态记忆。")
+
+    st.markdown("**🌀 动态记忆**（ChromaDB）")
+    dynamic_items = memory.long_term_memory.get_all()
+    if dynamic_items:
+        for i, item in enumerate(dynamic_items):
+            st.markdown(f"`[{i}]` {item['fact']}")
+    else:
+        st.caption("No Dynamic Memories Yet.")
+    kb_count = len(memory.knowledge_store)
+    if kb_count:
+        st.caption(f"共 {kb_count} 个文档块")
+        sources = memory.knowledge_store.list_sources()
+        for src in sources:
+            st.markdown(f"• `{src}`")
+    else:
+        st.caption("知识库为空，请运行 demo/load_knowledge.py 导入文档。")
 
     st.divider()
     if st.button("Clear Short-Term Memory"):
         memory.clear_short_term()
         st.session_state.chat_log.clear()
         st.rerun()
+
+# == 冲突检测（每次渲染时检查待确认冲突）==
+conflicts = memory.peek_conflicts()
+if conflicts:
+    st.warning(f"⚠️ 发现 {len(conflicts)} 条记忆冲突，请确认后才会更新记忆。")
+    for conflict in conflicts:
+        with st.container(border=True):
+            mem_tag = "🔒 静态" if conflict.memory_type == "static" else "🌀 动态"
+            st.markdown(f"**冲突类型** {mem_tag} · {conflict.reason}")
+            col_old, col_new = st.columns(2)
+            with col_old:
+                st.error(f"✖ 已有记忆\n\n{conflict.old_content}")
+            with col_new:
+                st.info(f"➕ 新记忆\n\n{conflict.new_content}")
+            btn1, btn2 = st.columns(2)
+            with btn1:
+                if st.button("✓ 确认更新", key=f"accept_{conflict.cid}", type="primary"):
+                    memory.resolve_conflict(conflict, accepted=True)
+                    st.toast("已更新记忆！")
+                    st.rerun()
+            with btn2:
+                if st.button("✕ 保留原记忆", key=f"reject_{conflict.cid}"):
+                    memory.resolve_conflict(conflict, accepted=False)
+                    st.toast("已保留原记忆。")
+                    st.rerun()
 
 # == 主对话区 ==
 for msg in st.session_state.chat_log:
@@ -117,20 +163,25 @@ if user_input:
     st.session_state.chat_log.append({"role": "user",      "content": user_input})
     st.session_state.chat_log.append({"role": "assistant", "content": reply})
 
-    # LLM 自动提取短期记忆 → 长期记忆
+    # 后台记忆整理（异步，立即返回）
     if st.session_state.auto_extract:
-        with st.spinner("提取记忆中…"):
-            extracted = memory.extract_to_long_term(client, model)
-        if extracted:
-            facts_preview = "\n".join(f"• {f}" for f in extracted)
-            st.toast(f"已提取 {len(extracted)} 条记忆：\n{facts_preview}")
+        memory.submit_for_consolidation()
+        st.toast("🧠 记忆正在后台整理中…")
 
 # == Debug：当前记忆状态 ==
 with st.expander("Current Memory State (Debug)"):
-    col1, col2 = st.columns(2)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.subheader("Short-Term Memory (Chat Window)")
+        st.subheader("Short-Term")
         st.json(memory.short_term)
     with col2:
-        st.subheader("Long-Term Memory (Fact List)")
+        st.subheader("🔒 Static (MongoDB)")
+        st.caption(f"backend: {memory.static_memory.backend}")
+        st.json(memory.static_memory.get_all())
+    with col3:
+        st.subheader("🌀 Dynamic (ChromaDB)")
         st.json(memory.long_term_memory.get_all())
+    with col4:
+        st.subheader("📖 Knowledge Base")
+        st.caption(f"{len(memory.knowledge_store)} 块 | {memory.knowledge_store.list_sources()}")
+        st.json(memory.knowledge_store.get_all())
