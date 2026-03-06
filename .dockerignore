@@ -1,0 +1,25 @@
+# 敏感配置，通过 --env-file 在运行时传入，不打进镜像
+.env
+
+# 运行时数据（由 volumes 挂载，不打进镜像）
+data/
+
+# Python 缓存
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# 虚拟环境
+.venv/
+venv/
+
+# 版本控制
+.git/
+.gitignore
+
+# IDE
+.vscode/
+
+# 演示脚本（非生产代码）
+demo/
