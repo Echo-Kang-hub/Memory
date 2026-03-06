@@ -9,9 +9,9 @@ class ShortTermMemory:
         """追加消息。若发生 FIFO 弹出，返回被弹出的消息字典；否则返回 None。"""
         self.history.append({"role": role, "content": content, "ts": datetime.now().isoformat(timespec="seconds")})
         if len(self.history) > self.limit:
-            return self.history.pop(0)
+            return self.history.pop(0) # 返回被弹出的信息，用于稍后提取长期记忆
         return None
-    def get_recent_history(self, n: int = None) -> list[dict]:   # 取最近 n 条
+    def get_recent_history(self, n: int = None) -> list[dict]:   # 取最近 n 条短期记忆
         return self.history[-n:] if n else self.history
     def get_as_text(self) -> str:   # 格式化成纯文本，供 LLM 提取时用
         return "\n".join([f"{item['role']}: {item['content']}" for item in self.history])
