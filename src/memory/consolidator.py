@@ -17,10 +17,10 @@ import threading
 import traceback
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
-from openai import OpenAI
 from config import Config
+from src.utils.llm import build_consolidate_llm
 
 if TYPE_CHECKING:
     from src.memory.manager import AgentMemory
@@ -100,10 +100,17 @@ class MemoryConsolidator:
     def __init__(self, manager: "AgentMemory"):
         self._manager = manager
         self._queue: queue.Queue[list[dict]] = queue.Queue()
+        self._llm: Callable[[list[dict], float], str] | None = None   # 懒加载，首次处理时初始化
         self._thread = threading.Thread(
             target=self._worker, daemon=True, name="MemoryConsolidator"
         )
         self._thread.start()
+
+    def _get_llm(self) -> Callable[[list[dict], float], str]:
+        """懒加载 LLM 调用函数，避免 local 模式在启动时阻塞主线程。"""
+        if self._llm is None:
+            self._llm = build_consolidate_llm()
+        return self._llm
 
     def submit(self, messages: list[dict]) -> None:
         """提交一批对话消息做后台整理，立即返回。"""
@@ -135,8 +142,8 @@ class MemoryConsolidator:
                     traceback.print_exc()
 
     def _process(self, messages: list[dict]) -> None:
-        if not Config.CHAT_API_KEY:
-            return  # API Key 未配置，跳过
+        if Config.CONSOLIDATE_TYPE == "api" and not Config.CONSOLIDATE_API_KEY:
+            return  # api 模式下 API Key 未配置，跳过
 
         # 去重，防止同一内容被重复提交
         seen: set[tuple] = set()
@@ -149,40 +156,33 @@ class MemoryConsolidator:
 
         text = "\n".join(f"{m['role']}: {m['content']}" for m in unique)
 
-        client = OpenAI(api_key=Config.CHAT_API_KEY, base_url=Config.CHAT_BASE_URL)
-        model = Config.CONSOLIDATE_MODEL or Config.CHATMODEL
-
         # Step 1: LLM 提取
-        extracted = self._extract(client, model, text)
+        extracted = self._extract(text)
         if not extracted:
             return
 
         # Step 2: 逐条检索 + 比对 + 写入
         for item in extracted:
             try:
-                self._process_one(client, model, item.get("type", "dynamic"), item.get("content", ""))
+                self._process_one(item.get("type", "dynamic"), item.get("content", ""))
             except Exception:
                 traceback.print_exc()
 
     # ── LLM 调用 ────────────────────────────────────────────────────
 
-    def _extract(self, client: OpenAI, model: str, text: str) -> list[dict]:
+    def _extract(self, text: str) -> list[dict]:
         """调用 LLM，从对话文本中提取 static/dynamic 事实列表。"""
-        raw = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": _EXTRACT_PROMPT.format(text=text)}],
+        raw = self._get_llm()(
+            [{"role": "user", "content": _EXTRACT_PROMPT.format(text=text)}],
             temperature=0,
-        ).choices[0].message.content.strip()
+        )
         raw = _strip_fence(raw)
         return json.loads(raw).get("memories", [])
 
-    def _compare(
-        self, client: OpenAI, model: str, new_memory: str, existing_text: str
-    ) -> dict:
+    def _compare(self, new_memory: str, existing_text: str) -> dict:
         """调用比对 LLM，返回操作指令字典。"""
-        raw = client.chat.completions.create(
-            model=model,
-            messages=[
+        raw = self._get_llm()(
+            [
                 {
                     "role": "user",
                     "content": _COMPARE_PROMPT.format(
@@ -192,12 +192,12 @@ class MemoryConsolidator:
                 }
             ],
             temperature=0,
-        ).choices[0].message.content.strip()
+        )
         return json.loads(_strip_fence(raw))
 
     # ── 单条记忆处理 ────────────────────────────────────────────────
 
-    def _process_one(self, client: OpenAI, model: str, mem_type: str, content: str) -> None:
+    def _process_one(self, mem_type: str, content: str) -> None:
         if not content.strip():
             return
 
@@ -216,7 +216,7 @@ class MemoryConsolidator:
             self._do_add(mem_type, content)
             return
 
-        op = self._compare(client, model, content, existing_text)
+        op = self._compare(content, existing_text)
         operation = op.get("operation", "ADD")
 
         if operation == "ADD":

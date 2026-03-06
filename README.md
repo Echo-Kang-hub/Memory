@@ -87,8 +87,10 @@ Memory/
 │   │   └── loader.py             # KnowledgeLoader：文档分块写入工具（管理员使用）
 │   │
 │   └── utils/
-│       └── embedding.py          # build_embedding()：按配置构建 ChromaDB EmbeddingFunction
-│                                 #   支持 local（sentence-transformers）/ ollama / api 三种模式
+│       ├── embedding.py          # build_embedding()：按配置构建 ChromaDB EmbeddingFunction
+│       │                         #   支持 local（sentence-transformers）/ ollama / api 三种模式
+│       └── llm.py                # build_consolidate_llm()：Consolidator 专用 LLM 调用工厂
+│                                 #   支持 api（OpenAI 兼容）/ ollama（原生客户端）/ local（transformers）
 │
 └── demo/                         # 独立演示脚本（不依赖 Streamlit）
     ├── memory.py                 # 最基础版本：关键词检索 + 纯内存长期记忆
@@ -107,7 +109,8 @@ Memory/
 | `short_term.py` | 有界 FIFO 队列；`add_memory()` 返回被弹出的消息供 Consolidator 消费 |
 | `long_term.py` | 封装 ChromaDB `agent_memories` collection；支持语义 `retrieve` 和 `delete_by_id` |
 | `static_memory.py` | MongoDB 主后端 + JSON 文件降级；存储不常变更的用户固定属性 |
-| `consolidator.py` | 后台线程；LLM 提取事实 → 相似度去重 → ADD/UPDATE/CONFLICT 三路写入 |
+| `consolidator.py` | 后台线程；通过 `build_consolidate_llm()` 驱动提取与比对，支持三种 LLM 模式 |
 | `store.py` | 封装 ChromaDB `knowledge_base` collection；运行期对 Agent 只读 |
 | `loader.py` | 文本分块（滑动窗口）→ 写入 `KnowledgeStore`；仅供管理脚本调用 |
 | `embedding.py` | 工厂函数，统一为 `LongTermMemory` 和 `KnowledgeStore` 提供相同的向量化策略 |
+| `llm.py` | 工厂函数，为 `MemoryConsolidator` 构建 LLM 调用 callable；支持独立于对话模型的 api / ollama / local |

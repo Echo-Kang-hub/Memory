@@ -51,9 +51,24 @@ class Config:
     MONGO_DB:                str = os.getenv("MONGO_DB",                "agent_memory")
     MONGO_STATIC_COLLECTION: str = os.getenv("MONGO_STATIC_COLLECTION", "static_memories")
 
-    # ── 记忆整理（后台 Consolidator）────────────────────────────────────
-    # CONSOLIDATE_MODEL：专用整理模型，留空则复用 CHATMODEL
-    CONSOLIDATE_MODEL:       str   = os.getenv("CONSOLIDATE_MODEL",       "")
+    # ── 记忆整理 LLM（Consolidator）─────────────────────────────────────
+    # CONSOLIDATE_TYPE 可选值: api（默认）| ollama | local
+    CONSOLIDATE_TYPE: str = os.getenv("CONSOLIDATE_TYPE", "api")
+
+    # api 模式：兼容 OpenAI 接口的远程服务，可配置独立于对话模型的 key / url / model
+    # 留空则分别复用 CHAT_API_KEY / CHAT_BASE_URL / CHATMODEL
+    CONSOLIDATE_API_KEY:  str = os.getenv("CONSOLIDATE_API_KEY",  os.getenv("CHAT_API_KEY",  ""))
+    CONSOLIDATE_API_BASE: str = os.getenv("CONSOLIDATE_API_BASE", os.getenv("CHAT_BASE_URL", "https://api.openai.com/v1"))
+    CONSOLIDATE_MODEL:    str = os.getenv("CONSOLIDATE_MODEL",    os.getenv("CHATMODEL",     "gpt-4o-mini"))
+
+    # ollama 模式：本地 Ollama 服务（原生客户端，无需 OpenAI 兼容层）
+    CONSOLIDATE_OLLAMA_MODEL: str = os.getenv("CONSOLIDATE_OLLAMA_MODEL", "qwen2.5:7b")
+    CONSOLIDATE_OLLAMA_URL:   str = os.getenv("CONSOLIDATE_OLLAMA_URL",   "http://localhost:11434")
+
+    # local 模式：直接加载 HuggingFace 模型（transformers，无需外部服务）
+    CONSOLIDATE_LOCAL_MODEL:  str = os.getenv("CONSOLIDATE_LOCAL_MODEL",  "Qwen/Qwen2.5-1.5B-Instruct")
+    CONSOLIDATE_LOCAL_DEVICE: str = os.getenv("CONSOLIDATE_LOCAL_DEVICE", "cpu")   # cpu / cuda / mps
+
     # 动态记忆去重阈值：distance < 此值才触发 LLM 比对（ChromaDB cosine distance，越低越相似）
     MEMORY_DEDUP_THRESHOLD:  float = float(os.getenv("MEMORY_DEDUP_THRESHOLD", "0.4"))
 
