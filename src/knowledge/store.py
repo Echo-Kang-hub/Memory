@@ -111,3 +111,11 @@ class KnowledgeStore:
         result = self._collection.get(where={"source": source})
         if result["ids"]:
             self._collection.delete(ids=result["ids"])
+
+    def _clear_all(self) -> int:
+        """清空知识库中的全部文档块，返回被删除的块数。"""
+        result = self._collection.get()
+        count = len(result["ids"])
+        if result["ids"]:
+            self._collection.delete(ids=result["ids"])
+        return count

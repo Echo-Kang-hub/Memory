@@ -14,6 +14,9 @@ demo/load_knowledge.py — 知识库管理脚本
   # 查看知识库当前状态
   python demo/load_knowledge.py --status
 
+  # 清空整个知识库
+  python demo/load_knowledge.py --clear
+
   # 清空并重新加载
   python demo/load_knowledge.py --dir docs/ --reload
 """
@@ -67,6 +70,16 @@ def cmd_load_dir(store: KnowledgeStore, dir_path: str, reload: bool) -> None:
         print(f"✘ 以下文件加载失败：{failed}")
 
 
+def cmd_clear(store: KnowledgeStore) -> None:
+    """清空整个知识库。"""
+    answer = input("确认清空整个知识库？此操作不可恢复！[y/N] ").strip().lower()
+    if answer != "y":
+        print("已取消。")
+        return
+    n = store._clear_all()
+    print(f"✔ 已删除 {n} 个块，知识库已清空。")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="知识库管理工具",
@@ -76,6 +89,7 @@ def main() -> None:
     group.add_argument("--file",   metavar="PATH", help="加载单个文件 (.txt/.md/.pdf)")
     group.add_argument("--dir",    metavar="PATH", help="批量加载目录中的所有文档")
     group.add_argument("--status", action="store_true", help="查看知识库当前状态")
+    group.add_argument("--clear",  action="store_true", help="清空整个知识库（不可恢复）")
 
     parser.add_argument(
         "--reload",
@@ -94,6 +108,8 @@ def main() -> None:
 
     if args.status:
         cmd_status(store)
+    elif args.clear:
+        cmd_clear(store)
     elif args.file:
         cmd_load_file(store, args.file, reload=args.reload)
         cmd_status(store)

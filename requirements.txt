@@ -7,3 +7,4 @@ ollama
 pymongo
 fastapi
 uvicorn[standard]
+pypdf

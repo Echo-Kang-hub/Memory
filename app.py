@@ -6,7 +6,9 @@ streamlit run app.py
 import streamlit as st
 from openai import OpenAI
 from src.memory.manager import AgentMemory
+from src.knowledge.loader import KnowledgeLoader
 from config import cfg
+import tempfile, os
 
 from PIL import Image
 
@@ -29,6 +31,8 @@ if "chat_log" not in st.session_state:
     st.session_state.chat_log = []
 if "auto_extract" not in st.session_state:
     st.session_state.auto_extract = True
+if "_confirm_clear_kb" not in st.session_state:
+    st.session_state._confirm_clear_kb = False
 
 memory: AgentMemory = st.session_state.memory
 
@@ -53,6 +57,7 @@ def render_memory_sidebar(mem: AgentMemory):
     else:
         st.caption("No Dynamic Memories Yet.")
 
+    st.markdown("**📖 知识库**（ChromaDB）")
     kb_count = len(mem.knowledge_store)
     if kb_count:
         st.caption(f"共 {kb_count} 个文档块")
@@ -139,6 +144,56 @@ with st.sidebar:
         st.success("已写入！")
 
     render_memory_sidebar(memory)
+
+    # ── 上传文件到知识库 ──────────────────────────────────
+    st.markdown("**📥 上传文件到知识库**")
+    uploaded = st.file_uploader(
+        "支持 .txt / .md / .pdf",
+        type=["txt", "md", "pdf"],
+        label_visibility="collapsed",
+    )
+    if uploaded is not None:
+        if st.button("导入知识库", type="primary", key="kb_upload_btn"):
+            with st.spinner(f"正在导入 {uploaded.name} …"):
+                suffix = os.path.splitext(uploaded.name)[1]
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    tmp.write(uploaded.getvalue())
+                    tmp_path = tmp.name
+                try:
+                    loader = KnowledgeLoader(memory.knowledge_store)
+                    n = loader.load_file(tmp_path, reload=True)
+                    # 将来源名改回原始文件名
+                    # load_file 以 tmp 文件名写入，需修正 source
+                    result = memory.knowledge_store._collection.get(where={"source": os.path.basename(tmp_path)})
+                    if result["ids"]:
+                        memory.knowledge_store._collection.update(
+                            ids=result["ids"],
+                            metadatas=[{"source": uploaded.name, "chunk_index": i} for i, _ in enumerate(result["ids"])],
+                        )
+                    st.toast(f"✔ 已导入 {uploaded.name}，共 {n} 个块。")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"导入失败：{e}")
+                finally:
+                    os.unlink(tmp_path)
+
+    if not st.session_state._confirm_clear_kb:
+        if st.button("🗑️ 清空知识库", disabled=(len(memory.knowledge_store) == 0)):
+            st.session_state._confirm_clear_kb = True
+            st.rerun()
+    else:
+        st.warning("确认清空全部知识库内容？此操作不可恢复！")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("✓ 确认清空", type="primary", key="kb_confirm_yes"):
+                memory.knowledge_store._clear_all()
+                st.session_state._confirm_clear_kb = False
+                st.toast("知识库已清空！")
+                st.rerun()
+        with c2:
+            if st.button("✕ 取消", key="kb_confirm_no"):
+                st.session_state._confirm_clear_kb = False
+                st.rerun()
 
     st.divider()
     if st.button("Clear Short-Term Memory"):
