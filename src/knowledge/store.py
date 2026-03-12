@@ -114,8 +114,12 @@ class KnowledgeStore:
 
     def _clear_all(self) -> int:
         """清空知识库中的全部文档块，返回被删除的块数。"""
-        result = self._collection.get()
-        count = len(result["ids"])
-        if result["ids"]:
-            self._collection.delete(ids=result["ids"])
+        count = self._collection.count()
+        collection_name = self._collection.name
+        # 删除整个 collection 再重建，比逐 ID 删除更可靠（避免 ChromaDB 段缓存残留）
+        self._client.delete_collection(collection_name)
+        self._collection = self._client.create_collection(
+            name=collection_name,
+            embedding_function=self._embedding_fn,
+        )
         return count

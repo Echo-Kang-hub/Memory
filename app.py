@@ -147,6 +147,11 @@ with st.sidebar:
 
     # ── 上传文件到知识库 ──────────────────────────────────
     st.markdown("**📥 上传文件到知识库**")
+    if cfg.EMBED_TYPE.lower() == "local":
+        st.caption(
+            f"⚠️ 当前使用本地 Embedding（{cfg.EMBED_LOCAL_MODEL} / {cfg.EMBED_LOCAL_DEVICE}），"
+            "大文件导入较慢。如需提速，可在 .env 中将 `EMBED_TYPE` 改为 `api`。"
+        )
     uploaded = st.file_uploader(
         "支持 .txt / .md / .pdf",
         type=["txt", "md", "pdf"],
