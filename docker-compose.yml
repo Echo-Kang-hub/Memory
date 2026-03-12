@@ -21,6 +21,25 @@ services:
         condition: service_healthy   # 等 MongoDB 健康检查通过再启动 app
     restart: unless-stopped
 
+  # ── FastAPI 测试接口服务 ────────────────────────────────────────────
+  api:
+    build: .
+    container_name: agent-memory-api
+    command: ["python", "api.py"]
+    ports:
+      - "8000:8000"                 # 主机 localhost:8000 可直接访问
+    env_file:
+      - .env
+    environment:
+      MONGO_URI: mongodb://mongodb:27017
+    volumes:
+      - ./data:/app/data
+      - hf_cache:/root/.cache/huggingface
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+
   # ── MongoDB ────────────────────────────────────────────────────────
   mongodb:
     image: mongo:7

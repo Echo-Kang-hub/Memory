@@ -13,6 +13,7 @@ memory/consolidator.py — 后台记忆整理器
 
 import json
 import queue
+import re
 import threading
 import traceback
 import uuid
@@ -173,13 +174,16 @@ class MemoryConsolidator:
             messages=[{"role": "user", "content": _EXTRACT_PROMPT.format(text=text)}],
             temperature=0,
         ).choices[0].message.content.strip()
-        raw = _strip_fence(raw)
-        return json.loads(raw).get("memories", [])
+        result = _parse_json(raw)
+        if result is None:
+            traceback.print_exc()
+            return []
+        return result.get("memories", [])
 
     def _compare(
         self, client: OpenAI, model: str, new_memory: str, existing_text: str
     ) -> dict:
-        """调用比对 LLM，返回操作指令字典。"""
+        """调用比对 LLM，返回操作指令字典。JSON 解析失败时默认返回 ADD。"""
         raw = client.chat.completions.create(
             model=model,
             messages=[
@@ -193,7 +197,12 @@ class MemoryConsolidator:
             ],
             temperature=0,
         ).choices[0].message.content.strip()
-        return json.loads(_strip_fence(raw))
+        result = _parse_json(raw)
+        if result is None:
+            # LLM 返回了无法解析的内容，保守起见执行 ADD
+            print(f"[Consolidator] _compare JSON解析失败，原始输出（前200字）: {raw[:200]}")
+            return {"operation": "ADD", "reason": "JSON解析失败，默认ADD"}
+        return result
 
     # ── 单条记忆处理 ────────────────────────────────────────────────
 
@@ -261,7 +270,9 @@ class MemoryConsolidator:
 # ── 工具函数 ──────────────────────────────────────────────────────────
 
 def _strip_fence(text: str) -> str:
-    """去除 LLM 输出中可能包裹的 markdown 代码块标记。"""
+    """去除 LLM 输出中可能包裹的 markdown 代码块标记及 <think> 思考链标签。"""
+    # 去掉 <think>...</think>（DeepSeek-R1 / Qwen3 thinking 模式）
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
     if text.startswith("```"):
         lines = text.split("\n")
         # 去掉第一行 ```json / ``` 和最后一行 ```
@@ -270,3 +281,24 @@ def _strip_fence(text: str) -> str:
             lines = lines[:-1]
         return "\n".join(lines).strip()
     return text
+
+
+def _parse_json(text: str) -> dict | None:
+    """
+    容错 JSON 解析：先直接尝试，失败后从文本中提取最外层 {...} 块。
+    返回 None 表示彻底无法解析。
+    """
+    text = _strip_fence(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # 找第一个 '{' 到最后一个 '}' 之间的内容再试一次
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            return json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            pass
+    return None

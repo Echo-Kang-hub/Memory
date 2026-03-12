@@ -23,10 +23,11 @@ class StaticMemory:
     在 build_messages 时全量注入到 System Prompt 的"用户固定信息"区块。
     """
 
-    def __init__(self):
+    def __init__(self, json_path: str | None = None, collection_name: str | None = None):
         self._backend: str = "json"
         self._collection = None
-        self._json_path = os.path.abspath("./data/static_memory.json")
+        self._collection_name = collection_name or Config.MONGO_STATIC_COLLECTION
+        self._json_path = os.path.abspath(json_path or "./data/static_memory.json")
         self._init_backend()
 
     # ================================================================
@@ -95,6 +96,13 @@ class StaticMemory:
         """仅返回所有事实的文本，用于注入 System Prompt。"""
         return [item["fact"] for item in self.get_all()]
 
+    def clear_all(self) -> None:
+        """清空所有静态记忆（用于测试重置）"""
+        if self._backend == "mongodb":
+            self._collection.delete_many({})
+        else:
+            self._save([])
+
     def __len__(self) -> int:
         if self._backend == "mongodb":
             return self._collection.count_documents({})
@@ -116,7 +124,7 @@ class StaticMemory:
             from pymongo import MongoClient
             client = MongoClient(Config.MONGO_URI, serverSelectionTimeoutMS=3000)
             client.server_info()  # 快速连通性测试
-            self._collection = client[Config.MONGO_DB][Config.MONGO_STATIC_COLLECTION]
+            self._collection = client[Config.MONGO_DB][self._collection_name]
             self._backend = "mongodb"
         except Exception as exc:
             print(f"[StaticMemory] MongoDB 不可用，降级使用 JSON 文件：{exc}")

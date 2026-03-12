@@ -5,7 +5,7 @@ from src.utils.embedding import build_embedding
 
 
 class LongTermMemory:
-    def __init__(self):
+    def __init__(self, collection_name: str = "agent_memories"):
         # 将相对路径转为绝对路径，避免 Windows 下 Streamlit 热重载时工作目录漂移
         # 导致 ChromaDB Rust 后端触发 ERROR_ALREADY_EXISTS (os error 183)
         db_path = os.path.abspath(Config.VECTOR_DB_PATH)
@@ -18,7 +18,7 @@ class LongTermMemory:
         self.embedding_fn = build_embedding()
 
         self.collection = self.client.get_or_create_collection(
-            name="agent_memories",
+            name=collection_name,
             embedding_function=self.embedding_fn
         )
 
@@ -47,6 +47,12 @@ class LongTermMemory:
     def delete_by_id(self, mem_id: str) -> None:
         """删除指定 ID 的动态记忆"""
         self.collection.delete(ids=[mem_id])
+
+    def clear_all(self) -> None:
+        """删除集合中所有记忆（用于测试重置）"""
+        ids = self.collection.get()["ids"]
+        if ids:
+            self.collection.delete(ids=ids)
 
     def retrieve(self, query: str, top_k: int = 3) -> list[dict]:
         """

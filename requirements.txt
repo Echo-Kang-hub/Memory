@@ -5,3 +5,5 @@ chromadb
 sentence-transformers
 ollama
 pymongo
+fastapi
+uvicorn[standard]

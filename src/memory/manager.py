@@ -24,10 +24,16 @@ from src.knowledge.store import KnowledgeStore
 class AgentMemory:
     """Agent 记忆管理器：统一管理短期、静态长期、动态长期记忆与只读知识库。"""
 
-    def __init__(self, short_term_limit: int = 10):
+    def __init__(self, short_term_limit: int = 10, user_id: str | None = None):
+        # 若指定 user_id，使用隔离的存储空间（用于多用户/测试场景）
+        _safe_id = user_id.replace("-", "_").replace(".", "_") if user_id else None
+        collection_name = f"agent_memories_{_safe_id}" if _safe_id else "agent_memories"
+        json_path = f"./data/static_memory_{_safe_id}.json" if _safe_id else None
+        mongo_collection = f"static_memories_{_safe_id}" if _safe_id else None
+
         self.short_term_memory = ShortTermMemory(limit=short_term_limit)
-        self.long_term_memory  = LongTermMemory()   # 动态记忆（ChromaDB）
-        self.static_memory     = StaticMemory()      # 静态记忆（MongoDB / JSON fallback）
+        self.long_term_memory  = LongTermMemory(collection_name=collection_name)
+        self.static_memory     = StaticMemory(json_path=json_path, collection_name=mongo_collection)
         self.knowledge_store   = KnowledgeStore()    # 只读知识库
 
         # 待确认冲突队列（线程安全）
@@ -72,6 +78,26 @@ class AgentMemory:
         history = list(self.short_term_memory.history)
         if history:
             self._consolidator.submit(history)
+
+    def consolidate_now(self, messages: list[dict]) -> None:
+        """同步执行记忆整理（阻塞，确保整理完成后才返回，适合 API 场景）。"""
+        if messages:
+            self._consolidator._process(messages)
+
+    def reset(self) -> None:
+        """清空该用户所有记忆状态（测试重置专用）。"""
+        self.short_term_memory.clear()
+        self.long_term_memory.clear_all()
+        self.static_memory.clear_all()
+        with self._conflict_lock:
+            self._pending_conflicts.clear()
+        # 排空后台整理队列，防止残留任务污染下一轮测试
+        q = self._consolidator._queue
+        while not q.empty():
+            try:
+                q.get_nowait()
+            except Exception:
+                break
 
     # ================================================================
     # 冲突管理（Conflict Management）
