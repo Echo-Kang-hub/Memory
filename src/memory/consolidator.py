@@ -181,20 +181,17 @@ class MemoryConsolidator:
         raw = self._get_llm()(
             [{"role": "user", "content": _EXTRACT_PROMPT.format(text=text)}],
             temperature=0,
-        ).choices[0].message.content.strip()
+        )
         result = _parse_json(raw)
         if result is None:
-            traceback.print_exc()
+            print(f"[Consolidator] _extract JSON解析失败，原始输出（前200字）: {raw[:200]}")
             return []
         return result.get("memories", [])
 
-    def _compare(
-        self, client: OpenAI, model: str, new_memory: str, existing_text: str
-    ) -> dict:
+    def _compare(self, new_memory: str, existing_text: str) -> dict:
         """调用比对 LLM，返回操作指令字典。JSON 解析失败时默认返回 ADD。"""
-        raw = client.chat.completions.create(
-            model=model,
-            messages=[
+        raw = self._get_llm()(
+            [
                 {
                     "role": "user",
                     "content": _COMPARE_PROMPT.format(
@@ -204,7 +201,7 @@ class MemoryConsolidator:
                 }
             ],
             temperature=0,
-        ).choices[0].message.content.strip()
+        )
         result = _parse_json(raw)
         if result is None:
             # LLM 返回了无法解析的内容，保守起见执行 ADD
