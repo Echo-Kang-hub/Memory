@@ -18,10 +18,10 @@ import threading
 import traceback
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
-from openai import OpenAI
 from config import Config
+from src.utils.llm import build_consolidate_llm
 
 if TYPE_CHECKING:
     from src.memory.manager import AgentMemory
@@ -31,10 +31,15 @@ if TYPE_CHECKING:
 
 _EXTRACT_PROMPT = """\
 请从以下对话片段中提取值得长期记忆的事实，分为两类：
-- static（静态）：用户的固定属性，如姓名/昵称、职业/职位、居住地、家庭关系、长期固定偏好
-- dynamic（动态）：用户近期的状态、临时偏好、当前关注的话题、正在进行的计划、观点看法
+- static（静态）：用户不易变化的固定属性，包括：
+    姓名/昵称、年龄、职业/职位、专业/学科、居住地/家乡、家庭关系、
+    性格特点/个人特质（如内向、慢热、乐观等）、长期固定爱好
+- dynamic（动态）：用户近期才体现的、可能随时间变化的信息，包括：
+    当前关注的话题、正在进行的计划/学习、近期目标或烦恼、临时偏好
 
 规则：
+- 每条事实只提取一次，选择最准确的类型，绝对不要重复提取同一条信息
+- 性格/个人特质始终归入 static，不得同时出现在 dynamic
 - 只提取对话中明确出现的信息，不要推测
 - 每条记忆应是独立、完整的短句
 - 若无值得记忆的内容，返回 {{"memories": []}}
@@ -101,10 +106,17 @@ class MemoryConsolidator:
     def __init__(self, manager: "AgentMemory"):
         self._manager = manager
         self._queue: queue.Queue[list[dict]] = queue.Queue()
+        self._llm: Callable[[list[dict], float], str] | None = None   # 懒加载，首次处理时初始化
         self._thread = threading.Thread(
             target=self._worker, daemon=True, name="MemoryConsolidator"
         )
         self._thread.start()
+
+    def _get_llm(self) -> Callable[[list[dict], float], str]:
+        """懒加载 LLM 调用函数，避免 local 模式在启动时阻塞主线程。"""
+        if self._llm is None:
+            self._llm = build_consolidate_llm()
+        return self._llm
 
     def submit(self, messages: list[dict]) -> None:
         """提交一批对话消息做后台整理，立即返回。"""
@@ -136,8 +148,8 @@ class MemoryConsolidator:
                     traceback.print_exc()
 
     def _process(self, messages: list[dict]) -> None:
-        if not Config.CHAT_API_KEY:
-            return  # API Key 未配置，跳过
+        if Config.CONSOLIDATE_TYPE == "api" and not Config.CONSOLIDATE_API_KEY:
+            return  # api 模式下 API Key 未配置，跳过
 
         # 去重，防止同一内容被重复提交
         seen: set[tuple] = set()
@@ -150,28 +162,24 @@ class MemoryConsolidator:
 
         text = "\n".join(f"{m['role']}: {m['content']}" for m in unique)
 
-        client = OpenAI(api_key=Config.CHAT_API_KEY, base_url=Config.CHAT_BASE_URL)
-        model = Config.CONSOLIDATE_MODEL or Config.CHATMODEL
-
         # Step 1: LLM 提取
-        extracted = self._extract(client, model, text)
+        extracted = self._extract(text)
         if not extracted:
             return
 
         # Step 2: 逐条检索 + 比对 + 写入
         for item in extracted:
             try:
-                self._process_one(client, model, item.get("type", "dynamic"), item.get("content", ""))
+                self._process_one(item.get("type", "dynamic"), item.get("content", ""))
             except Exception:
                 traceback.print_exc()
 
     # ── LLM 调用 ────────────────────────────────────────────────────
 
-    def _extract(self, client: OpenAI, model: str, text: str) -> list[dict]:
+    def _extract(self, text: str) -> list[dict]:
         """调用 LLM，从对话文本中提取 static/dynamic 事实列表。"""
-        raw = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": _EXTRACT_PROMPT.format(text=text)}],
+        raw = self._get_llm()(
+            [{"role": "user", "content": _EXTRACT_PROMPT.format(text=text)}],
             temperature=0,
         ).choices[0].message.content.strip()
         result = _parse_json(raw)
@@ -206,7 +214,7 @@ class MemoryConsolidator:
 
     # ── 单条记忆处理 ────────────────────────────────────────────────
 
-    def _process_one(self, client: OpenAI, model: str, mem_type: str, content: str) -> None:
+    def _process_one(self, mem_type: str, content: str) -> None:
         if not content.strip():
             return
 
@@ -225,7 +233,7 @@ class MemoryConsolidator:
             self._do_add(mem_type, content)
             return
 
-        op = self._compare(client, model, content, existing_text)
+        op = self._compare(content, existing_text)
         operation = op.get("operation", "ADD")
 
         if operation == "ADD":

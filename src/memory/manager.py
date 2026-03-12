@@ -12,6 +12,8 @@ manager.py — Agent Memory 管理器
 前端路径（build_messages）只做只读检索，不等待整理完成。
 """
 
+import json
+import os
 import threading
 
 from src.memory.short_term import ShortTermMemory
@@ -36,6 +38,10 @@ class AgentMemory:
         self.static_memory     = StaticMemory(json_path=json_path, collection_name=mongo_collection)
         self.knowledge_store   = KnowledgeStore()    # 只读知识库
 
+        # 短期记忆持久化路径（页面刷新后自动恢复）
+        self._st_cache_path = os.path.abspath("./data/short_term_cache.json")
+        self._load_short_term_cache()
+
         # 待确认冲突队列（线程安全）
         self._pending_conflicts: list[ConflictItem] = []
         self._conflict_lock = threading.Lock()
@@ -47,6 +53,39 @@ class AgentMemory:
     @property
     def short_term(self) -> list[dict]:
         return self.short_term_memory.history
+
+    # ================================================================
+    # 短期记忆持久化（刷新恢复）
+    # ================================================================
+
+    def _load_short_term_cache(self) -> None:
+        """启动时从本地 JSON 恢复短期记忆，文件不存在则静默跳过。"""
+        try:
+            if os.path.exists(self._st_cache_path):
+                with open(self._st_cache_path, "r", encoding="utf-8") as f:
+                    history = json.load(f)
+                if isinstance(history, list):
+                    # 只恢复不超过 limit 的最近记录
+                    self.short_term_memory.history = history[-self.short_term_memory.limit:]
+        except Exception:
+            pass  # 缓存损坏时静默忽略，从空白开始
+
+    def _save_short_term_cache(self) -> None:
+        """将当前短期记忆快照写入本地 JSON。"""
+        try:
+            os.makedirs(os.path.dirname(self._st_cache_path), exist_ok=True)
+            with open(self._st_cache_path, "w", encoding="utf-8") as f:
+                json.dump(self.short_term_memory.history, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _clear_short_term_cache(self) -> None:
+        """清空短期记忆时同步删除缓存文件。"""
+        try:
+            if os.path.exists(self._st_cache_path):
+                os.remove(self._st_cache_path)
+        except Exception:
+            pass
 
     # ================================================================
     # 写入（Write）
@@ -61,6 +100,7 @@ class AgentMemory:
         evicted = self.short_term_memory.add_memory(role, content)
         if evicted is not None:
             self._consolidator.submit([evicted])
+        self._save_short_term_cache()
 
     def save_fact(self, fact: str) -> None:
         """手动向动态长期记忆写入一条事实（不经过去重流程）。"""
@@ -198,6 +238,7 @@ class AgentMemory:
     def clear_short_term(self) -> None:
         """清空短期记忆（开始新对话时调用）。"""
         self.short_term_memory.clear()
+        self._clear_short_term_cache()
 
     def __repr__(self) -> str:
         return (
